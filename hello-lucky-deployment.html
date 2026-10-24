@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>hello-lucky deployment guide</title>
+  <style>
+    :root {
+      --ink: #1c2430;
+      --muted: #5c6b7a;
+      --line: #d5dde6;
+      --paper: #f6f8fb;
+      --card: #ffffff;
+      --teal: #0f6e6b;
+      --navy: #1e3a5f;
+      --amber: #a15c07;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0 auto;
+      max-width: 880px;
+      padding: 40px 48px 64px;
+      color: var(--ink);
+      font: 16px/1.5 "Iowan Old Style", Palatino, Georgia, serif;
+      background: white;
+    }
+    h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 8px; }
+    h2 { font-size: 1.45rem; margin: 2rem 0 0.6rem; color: var(--navy); page-break-after: avoid; }
+    h3 { font-size: 1.1rem; margin: 1.4rem 0 0.4rem; page-break-after: avoid; }
+    p { margin: 0.4rem 0 0.8rem; }
+    .lede { font-size: 1.08rem; color: var(--muted); }
+    .meta { color: var(--muted); font-family: "Avenir Next", "Segoe UI", sans-serif; font-size: 0.92rem; }
+    figure { margin: 1.2rem 0 1.6rem; page-break-inside: avoid; }
+    figcaption { font-family: "Avenir Next", "Segoe UI", sans-serif; font-size: 0.85rem; color: var(--muted); margin-top: 6px; }
+    pre {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px 14px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      font: 12.5px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      page-break-inside: avoid;
+    }
+    code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.9em; }
+    ol.steps { padding-left: 1.2rem; }
+    ol.steps li { margin: 0.35rem 0 0.9rem; }
+    table { width: 100%; border-collapse: collapse; font-family: "Avenir Next", "Segoe UI", sans-serif; font-size: 0.92rem; margin: 0.6rem 0 1rem; }
+    th, td { border-bottom: 1px solid var(--line); text-align: left; padding: 6px 8px; vertical-align: top; }
+    th { color: var(--navy); }
+    .note { background: #f3f7f6; border-left: 4px solid var(--teal); padding: 8px 12px; margin: 0.8rem 0 1rem; }
+    svg { width: 100%; height: auto; }
+    @page { size: letter; margin: 0.6in; }
+    @media print {
+      body { padding: 0; max-width: none; }
+      h2.break { page-break-before: always; }
+      a { color: inherit; text-decoration: none; }
+    }
+  </style>
+</head>
+<body>
+  <p class="meta">hello-lucky · personal account 699558695655 · us-east-1 · profile personal</p>
+  <h1>Deploying hello-lucky</h1>
+  <p class="lede">A Spring Boot service on Java 21. <code>GET /hello-lucky/hello?country=US</code> returns the country, a phone country code, and a lucky number.</p>
+
+  <figure>
+    <svg viewBox="0 0 860 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Request path from a caller through the Fargate task to Parameter Store and Secrets Manager">
+      <rect width="860" height="250" fill="#f6f8fb"/>
+      <g font-family="Avenir Next, Segoe UI, sans-serif" font-size="14">
+        <rect x="20" y="80" width="140" height="70" rx="8" fill="#1e3a5f"/>
+        <text x="90" y="112" fill="white" text-anchor="middle">Caller</text>
+        <text x="90" y="132" fill="#d5dde6" text-anchor="middle" font-size="12">Postman or curl</text>
+        <polygon points="170,115 200,115 200,108 220,122 200,136 200,129 170,129" fill="#0f6e6b"/>
+        <rect x="230" y="70" width="220" height="90" rx="8" fill="#0f6e6b"/>
+        <text x="340" y="104" fill="white" text-anchor="middle">Fargate task</text>
+        <text x="340" y="124" fill="#e7f4f3" text-anchor="middle" font-size="12">public IP :8080</text>
+        <text x="340" y="142" fill="#e7f4f3" text-anchor="middle" font-size="12">hello-lucky container</text>
+        <polygon points="460,100 490,100 490,93 510,107 490,121 490,114 460,114" fill="#a15c07"/>
+        <polygon points="460,145 490,145 490,138 510,152 490,166 490,159 460,159" fill="#a15c07"/>
+        <rect x="520" y="36" width="310" height="70" rx="8" fill="#fff" stroke="#1e3a5f"/>
+        <text x="675" y="66" text-anchor="middle" fill="#1e3a5f">Parameter Store</text>
+        <text x="675" y="86" text-anchor="middle" fill="#5c6b7a" font-size="12">/hello-lucky/phone-country-codes</text>
+        <rect x="520" y="140" width="310" height="70" rx="8" fill="#fff" stroke="#a15c07"/>
+        <text x="675" y="170" text-anchor="middle" fill="#a15c07">Secrets Manager</text>
+        <text x="675" y="190" text-anchor="middle" fill="#5c6b7a" font-size="12">hello-lucky/lucky-numbers</text>
+      </g>
+    </svg>
+    <figcaption>Figure 2. Each request reads both maps. US returns phone code 1 and lucky number 11. INDIA returns 91 and 22.</figcaption>
+  </figure>
+
+  <h2>Build, test, and the container image</h2>
+  <figure>
+    <svg viewBox="0 0 860 110" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Gradle builds the jar, Docker packages it, and the image is pushed to ECR">
+      <rect width="860" height="110" fill="#f6f8fb"/>
+      <g font-family="Avenir Next, Segoe UI, sans-serif" font-size="14" text-anchor="middle">
+        <rect x="16" y="24" width="170" height="62" rx="8" fill="#1e3a5f"/>
+        <text x="101" y="52" fill="white">./gradlew test</text>
+        <text x="101" y="72" fill="#d5dde6" font-size="12">then bootJar</text>
+        <polygon points="196,55 226,55 226,48 244,62 226,76 226,69 196,69" fill="#0f6e6b"/>
+        <rect x="254" y="24" width="180" height="62" rx="8" fill="#0f6e6b"/>
+        <text x="344" y="52" fill="white">docker build</text>
+        <text x="344" y="72" fill="#e7f4f3" font-size="12">linux/arm64</text>
+        <polygon points="444,55 474,55 474,48 492,62 474,76 474,69 444,69" fill="#0f6e6b"/>
+        <rect x="502" y="24" width="160" height="62" rx="8" fill="#0f6e6b"/>
+        <text x="582" y="52" fill="white">docker push</text>
+        <text x="582" y="72" fill="#e7f4f3" font-size="12">${REPO}:latest</text>
+        <polygon points="672,55 702,55 702,48 720,62 702,76 702,69 672,69" fill="#a15c07"/>
+        <rect x="730" y="24" width="114" height="62" rx="8" fill="#a15c07"/>
+        <text x="787" y="60" fill="white">ECR</text>
+      </g>
+    </svg>
+    <figcaption>Figure 1. The jar is built first. The image is pushed before ECS starts a task.</figcaption>
+  </figure>
+  <p>These commands are the same for the AWS CLI path and the Terraform path. Run them from the project root, <code>/Users/snagulapalli/try/hello-lucky</code>.</p>
+  <pre>./gradlew test
+./gradlew bootJar</pre>
+  <p><code>bootJar</code> is registered by the Spring Boot plugin in <code>build.gradle</code>. It writes <code>build/libs/hello-lucky-0.0.1-SNAPSHOT.jar</code>. It does not look at the Dockerfile.</p>
+  <p>Run it on the laptop, with the personal profile and an explicit region. The Java SDK does not read a config heading written as <code>[personal]</code>. It expects <code>[profile personal]</code>.</p>
+  <pre>AWS_PROFILE=personal AWS_REGION=us-east-1 ./gradlew bootRun</pre>
+  <p>Then call <code>http://localhost:8080/hello-lucky/hello?country=US</code>.</p>
+  <p>The image copies that jar onto Amazon Corretto 21:</p>
+  <pre>docker build --platform linux/arm64 -t hello-lucky:latest .</pre>
+  <p>This Mac builds an ARM image, so the ECS task must use <code>ARM64</code>. <code>EXPOSE 8080</code> only records that the process listens on 8080. The security group and the task port mapping are what let a caller reach it.</p>
+
+  <h2>1. Run using the AWS CLI</h2>
+  <p>This is the manual deploy. Each command creates one piece, and the shell variables carry ids into the next command. Set the profile and region first, and keep the shell open so <code>$VPC_ID</code> and the other variables stay set.</p>
+  <pre>export AWS_PROFILE=personal
+export AWS_REGION=us-east-1
+export AWS_DEFAULT_REGION=us-east-1
+ACCOUNT=$(aws sts get-caller-identity --query Account --output text)</pre>
+
+  <figure>
+    <svg viewBox="0 0 860 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="VPC with two public subnets, an internet gateway, and a security group">
+      <rect width="860" height="300" fill="#f6f8fb"/>
+      <rect x="16" y="16" width="828" height="268" rx="12" fill="#e7eef6" stroke="#1e3a5f"/>
+      <text x="36" y="42" font-family="Avenir Next, Segoe UI, sans-serif" font-size="14" fill="#1e3a5f">VPC 10.20.0.0/16 · hello-lucky</text>
+      <rect x="620" y="70" width="190" height="56" rx="8" fill="#a15c07"/>
+      <text x="715" y="94" text-anchor="middle" fill="white" font-family="Avenir Next, Segoe UI, sans-serif" font-size="14">Internet gateway</text>
+      <text x="715" y="112" text-anchor="middle" fill="#fff4e5" font-family="Avenir Next, Segoe UI, sans-serif" font-size="12">route 0.0.0.0/0</text>
+      <rect x="40" y="80" width="250" height="150" rx="8" fill="#fff" stroke="#0f6e6b"/>
+      <text x="165" y="112" text-anchor="middle" font-family="Avenir Next, Segoe UI, sans-serif" fill="#0f6e6b">Subnet A</text>
+      <text x="165" y="134" text-anchor="middle" font-family="Avenir Next, Segoe UI, sans-serif" font-size="12" fill="#5c6b7a">10.20.1.0/24</text>
+      <text x="165" y="154" text-anchor="middle" font-family="Avenir Next, Segoe UI, sans-serif" font-size="12" fill="#5c6b7a">us-east-1a</text>
+      <text x="165" y="190" text-anchor="middle" font-family="Avenir Next, Segoe UI, sans-serif" font-size="12" fill="#1c2430">one task lands here</text>
+      <text x="165" y="208" text-anchor="middle" font-family="Avenir Next, Segoe UI, sans-serif" font-size="12" fill="#1c2430">or in subnet B</text>
+      <rect x="320" y="80" width="250" height="150" rx="8" fill="#fff" stroke="#0f6e6b"/>
+      <text x="445" y="112" text-anchor="middle" font-family="Avenir Next, Segoe UI, sans-serif" fill="#0f6e6b">Subnet B</text>
+      <text x="445" y="134" text-anchor="middle" font-family="Avenir Next, Segoe UI, sans-serif" font-size="12" fill="#5c6b7a">10.20.2.0/24</text>
+      <text x="445" y="154" text-anchor="middle" font-family="Avenir Next, Segoe UI, sans-serif" font-size="12" fill="#5c6b7a">us-east-1b</text>
+      <text x="445" y="190" text-anchor="middle" font-family="Avenir Next, Segoe UI, sans-serif" font-size="12" fill="#1c2430">security group</text>
+      <text x="445" y="208" text-anchor="middle" font-family="Avenir Next, Segoe UI, sans-serif" font-size="12" fill="#1c2430">TCP 8080 from anywhere</text>
+    </svg>
+    <figcaption>Figure 3. Both subnets share one route table. A single task is placed in only one of them.</figcaption>
+  </figure>
+
+  <ol class="steps">
+    <li>
+      <strong>VPC.</strong> <code>10.20.0.0/16</code> is the address range. DNS support lets tasks resolve names such as the ECR hostname. DNS hostnames lets a public IP also have a public DNS name. Hostnames work only when support is also on.
+      <pre>VPC_ID=$(aws ec2 create-vpc --cidr-block 10.20.0.0/16 \
+  --tag-specifications 'ResourceType=vpc,Tags=[{Key=Name,Value=hello-lucky}]' \
+  --query 'Vpc.VpcId' --output text)
+aws ec2 modify-vpc-attribute --vpc-id "$VPC_ID" --enable-dns-support '{"Value":true}'
+aws ec2 modify-vpc-attribute --vpc-id "$VPC_ID" --enable-dns-hostnames '{"Value":true}'</pre>
+    </li>
+    <li>
+      <strong>Internet gateway.</strong> Create it, then attach it to the VPC. In zsh, type plain hyphens and straight quotes. An en dash makes the CLI report that <code>--vpc-id</code> is missing.
+      <pre>IGW_ID=$(aws ec2 create-internet-gateway \
+  --tag-specifications 'ResourceType=internet-gateway,Tags=[{Key=Name,Value=hello-lucky}]' \
+  --query 'InternetGateway.InternetGatewayId' --output text)
+aws ec2 attach-internet-gateway --internet-gateway-id "$IGW_ID" --vpc-id "$VPC_ID"</pre>
+    </li>
+    <li>
+      <strong>Two subnets</strong> inside the VPC, in two availability zones.
+      <pre>SUBNET_A=$(aws ec2 create-subnet --vpc-id "$VPC_ID" --cidr-block 10.20.1.0/24 --availability-zone us-east-1a \
+  --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=hello-lucky-a}]' \
+  --query 'Subnet.SubnetId' --output text)
+SUBNET_B=$(aws ec2 create-subnet --vpc-id "$VPC_ID" --cidr-block 10.20.2.0/24 --availability-zone us-east-1b \
+  --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=hello-lucky-b}]' \
+  --query 'Subnet.SubnetId' --output text)</pre>
+    </li>
+    <li>
+      <strong>Route table.</strong> Creating the table also installs an implicit route for <code>10.20.0.0/16</code> to <code>local</code>. The extra route sends every other IPv4 address to the gateway. Each association is its own API call. A subnet with no association keeps using the VPC’s main route table.
+      <pre>RTB_ID=$(aws ec2 create-route-table --vpc-id "$VPC_ID" \
+  --tag-specifications 'ResourceType=route-table,Tags=[{Key=Name,Value=hello-lucky}]' \
+  --query 'RouteTable.RouteTableId' --output text)
+aws ec2 create-route --route-table-id "$RTB_ID" --destination-cidr-block 0.0.0.0/0 --gateway-id "$IGW_ID"
+aws ec2 associate-route-table --route-table-id "$RTB_ID" --subnet-id "$SUBNET_A"
+aws ec2 associate-route-table --route-table-id "$RTB_ID" --subnet-id "$SUBNET_B"</pre>
+    </li>
+    <li>
+      <strong>Security group.</strong> A new group allows all outbound traffic and no inbound traffic. The second command opens TCP 8080 from any IPv4 address. <code>0.0.0.0/0</code> is the source address, not the port.
+      <pre>SG_ID=$(aws ec2 create-security-group --group-name hello-lucky \
+  --description "hello-lucky HTTP 8080" --vpc-id "$VPC_ID" --query 'GroupId' --output text)
+aws ec2 authorize-security-group-ingress --group-id "$SG_ID" --protocol tcp --port 8080 --cidr 0.0.0.0/0</pre>
+    </li>
+    <li>
+      <strong>Execution role.</strong> ECS may assume <code>hello-lucky-execution</code>. The attached AWS-managed policy lets Fargate pull from ECR and write logs. The Java process does not use this role.
+      <pre>aws iam create-role --role-name hello-lucky-execution \
+  --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ecs-tasks.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
+aws iam attach-role-policy --role-name hello-lucky-execution \
+  --policy-arn arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy</pre>
+    </li>
+    <li>
+      <strong>Log group,</strong> kept for 7 days.
+      <pre>aws logs create-log-group --log-group-name /ecs/hello-lucky
+aws logs put-retention-policy --log-group-name /ecs/hello-lucky --retention-in-days 7</pre>
+    </li>
+    <li>
+      <strong>ECR repository, then push.</strong> Login stores a temporary password for that registry host. The image name is what tells <code>docker push</code> where to send the layers. In zsh, write <code>${REPO}:latest</code>. A bare <code>$REPO:latest</code> is mangled.
+      <pre>aws ecr create-repository --repository-name hello-lucky
+REPO="${ACCOUNT}.dkr.ecr.us-east-1.amazonaws.com/hello-lucky"
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin "${ACCOUNT}.dkr.ecr.us-east-1.amazonaws.com"
+docker tag hello-lucky:latest "${REPO}:latest"
+docker push "${REPO}:latest"</pre>
+    </li>
+    <li>
+      <strong>Cluster.</strong> An empty group. It does not start a container.
+      <pre>aws ecs create-cluster --cluster-name hello-lucky</pre>
+    </li>
+    <li>
+      <strong>Task definition.</strong> Save the JSON below as <code>task-definition.json</code> and register it. The family name stays <code>hello-lucky</code>. The first registration is revision 1. Registering again after a change creates revision 2. This copy is the manual blueprint: 0.5 vCPU, 1 GB, ARM64, port 8080.
+      <pre>aws ecs register-task-definition --cli-input-json file://task-definition.json</pre>
+      <pre>{
+  "family": "hello-lucky",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "runtimePlatform": {
+    "cpuArchitecture": "ARM64",
+    "operatingSystemFamily": "LINUX"
+  },
+  "executionRoleArn": "arn:aws:iam::699558695655:role/hello-lucky-execution",
+  "containerDefinitions": [{
+    "name": "hello-lucky",
+    "image": "699558695655.dkr.ecr.us-east-1.amazonaws.com/hello-lucky:latest",
+    "essential": true,
+    "portMappings": [{ "containerPort": 8080, "protocol": "tcp" }],
+    "logConfiguration": {
+      "logDriver": "awslogs",
+      "options": {
+        "awslogs-group": "/ecs/hello-lucky",
+        "awslogs-region": "us-east-1",
+        "awslogs-stream-prefix": "ecs"
+      }
+    }
+  }]
+}</pre>
+    </li>
+    <li>
+      <strong>Service.</strong> Desired count 1 starts one task and keeps it running. ECS chooses one of the two subnets. <code>assignPublicIp=ENABLED</code> gives that task a public address.
+      <pre>aws ecs create-service \
+  --cluster hello-lucky \
+  --service-name hello-lucky \
+  --task-definition hello-lucky \
+  --desired-count 1 \
+  --launch-type FARGATE \
+  --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_A,$SUBNET_B],securityGroups=[$SG_ID],assignPublicIp=ENABLED}"
+aws ecs wait services-stable --cluster hello-lucky --services hello-lucky</pre>
+    </li>
+    <li>
+      <strong>Public IP and a call.</strong> <code>aws ecs wait</code> does not print an address. These three commands do. The app needs about 15 seconds after the task is running before Tomcat listens.
+      <pre>TASK=$(aws ecs list-tasks --cluster hello-lucky --service-name hello-lucky --desired-status RUNNING --query 'taskArns[0]' --output text)
+ENI=$(aws ecs describe-tasks --cluster hello-lucky --tasks "$TASK" --query "tasks[0].attachments[0].details[?name=='networkInterfaceId'].value | [0]" --output text)
+PUBLIC_IP=$(aws ec2 describe-network-interfaces --network-interface-ids "$ENI" --query 'NetworkInterfaces[0].Association.PublicIp' --output text)
+curl "http://${PUBLIC_IP}:8080/hello-lucky/hello?country=US"</pre>
+    </li>
+  </ol>
+
+  <div class="note">The manual task definition has an execution role only. After the app started reading Parameter Store and Secrets Manager, a second role (the task role) became necessary. That role is in the Terraform deploy below.</div>
+
+  <figure>
+    <svg viewBox="0 0 860 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Cluster contains a service, which keeps one task running from a task definition">
+      <rect width="860" height="220" fill="#f6f8fb"/>
+      <rect x="20" y="20" width="520" height="180" rx="12" fill="#e7eef6" stroke="#1e3a5f"/>
+      <text x="40" y="48" font-family="Avenir Next, Segoe UI, sans-serif" fill="#1e3a5f">Cluster hello-lucky</text>
+      <rect x="48" y="64" width="360" height="116" rx="10" fill="#fff" stroke="#0f6e6b"/>
+      <text x="68" y="92" font-family="Avenir Next, Segoe UI, sans-serif" fill="#0f6e6b">Service hello-lucky · desired count 1</text>
+      <rect x="72" y="108" width="200" height="52" rx="8" fill="#0f6e6b"/>
+      <text x="172" y="138" text-anchor="middle" fill="white" font-family="Avenir Next, Segoe UI, sans-serif">Task · one running copy</text>
+      <rect x="560" y="64" width="270" height="116" rx="10" fill="#fff" stroke="#a15c07"/>
+      <text x="695" y="100" text-anchor="middle" font-family="Avenir Next, Segoe UI, sans-serif" fill="#a15c07">Task definition</text>
+      <text x="695" y="124" text-anchor="middle" font-family="Avenir Next, Segoe UI, sans-serif" font-size="13" fill="#5c6b7a">image, CPU, memory,</text>
+      <text x="695" y="144" text-anchor="middle" font-family="Avenir Next, Segoe UI, sans-serif" font-size="13" fill="#5c6b7a">port, roles, logs</text>
+      <polygon points="548,122 430,122 430,114 410,130 430,146 430,138 548,138" fill="#a15c07"/>
+    </svg>
+    <figcaption>Figure 4. The task definition is the recipe. The service, inside the cluster, keeps one task running from that recipe.</figcaption>
+  </figure>
+
+  <h2 class="break">2. Run using Terraform</h2>
+  <p>The files in <code>terraform/</code> describe the same infrastructure plus the Phase 3 data. <code>terraform apply</code> creates resources in dependency order. A subnet uses <code>aws_vpc.hello_lucky.id</code> instead of a pasted <code>$VPC_ID</code>. <code>terraform.tfstate</code> remembers the real ids. <code>terraform destroy</code> removes the stack.</p>
+
+  <table>
+    <thead><tr><th>File</th><th>What it creates</th></tr></thead>
+    <tbody>
+      <tr><td><code>versions.tf</code></td><td>AWS provider 5.x, profile <code>personal</code>, region <code>us-east-1</code></td></tr>
+      <tr><td><code>network.tf</code></td><td>VPC, internet gateway, subnets A and B, route table, default route, both associations, security group</td></tr>
+      <tr><td><code>iam.tf</code></td><td><code>hello-lucky-execution</code> with the ECS execution policy, and <code>hello-lucky-task</code> allowed to read the parameter and the secret</td></tr>
+      <tr><td><code>ecs.tf</code></td><td>ECR repository, log group, cluster, task definition, service</td></tr>
+      <tr><td><code>config.tf</code></td><td>Parameter <code>/hello-lucky/phone-country-codes</code> = <code>{"US":1,"INDIA":91}</code> and secret <code>hello-lucky/lucky-numbers</code> = <code>{"US":11,"INDIA":22}</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3>Order that was used</h3>
+  <ol class="steps">
+    <li>From <code>terraform/</code>, <code>terraform init</code> once, then <code>terraform apply</code> while <code>ecs.tf</code> contained only the repository, log group, and cluster. That created 16 resources and no running task.</li>
+    <li>Build and push the image, using the repository URL AWS returned. Terraform also stores it as <code>aws_ecr_repository.hello_lucky.repository_url</code>.
+      <pre>./gradlew bootJar
+docker build --platform linux/arm64 -t hello-lucky:latest .
+ACCOUNT=699558695655
+REPO="${ACCOUNT}.dkr.ecr.us-east-1.amazonaws.com/hello-lucky"
+aws ecr get-login-password --region us-east-1 --profile personal \
+  | docker login --username AWS --password-stdin "${ACCOUNT}.dkr.ecr.us-east-1.amazonaws.com"
+docker tag hello-lucky:latest "${REPO}:latest"
+docker push "${REPO}:latest"</pre>
+    </li>
+    <li>Add <code>config.tf</code> and the task definition plus service in <code>ecs.tf</code>. The task definition sets <code>execution_role_arn</code> and <code>task_role_arn</code>. The service uses both subnets, the security group, <code>assign_public_ip = true</code>, <code>desired_count = 1</code>, and <code>wait_for_steady_state = true</code>.</li>
+    <li><code>terraform apply</code> again. The service creation line does not include the public IP. Look it up with the same <code>list-tasks</code> / <code>describe-tasks</code> / <code>describe-network-interfaces</code> commands, then curl port 8080.</li>
+  </ol>
+
+  <div class="note">A successful call looks like <code>{"country":"US","phone-country-code":1,"lucky-number":11}</code>. Fargate bills while the desired count stays at 1. A standard Parameter Store parameter is free. The secret is about $0.40 per month, plus $0.05 per 10,000 <code>GetSecretValue</code> calls.</div>
+
+  <h3>Remove it</h3>
+  <pre>terraform destroy</pre>
+  <p>Secrets Manager can leave the secret in a recovery window after destroy, and that window still bills. If the name is still listed, finish the delete with:</p>
+  <pre>aws secretsmanager delete-secret --secret-id hello-lucky/lucky-numbers \
+  --force-delete-without-recovery --profile personal --region us-east-1</pre>
+</body>
+</html>
